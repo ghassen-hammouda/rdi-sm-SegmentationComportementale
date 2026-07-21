@@ -1,3 +1,9 @@
 data/
 outputs/
+outputs_clean/
+outputs_poverty/
+outputs_eda_review/
+outputs_profiling/
 __pycache__/
+*.csv
+*.html
