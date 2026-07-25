@@ -126,6 +126,50 @@ def aggregate_by_household(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# 3bis. ECRETAGE DES VALEURS ABERRANTES SUR LES DEPENSES ANNUALISEES
+# ---------------------------------------------------------------------------
+
+def cap_annualized_outliers(df: pd.DataFrame, period_label: str,
+                             iqr_multiplier: float = 3.0, z_threshold: float = 3.0) -> pd.DataFrame:
+    """Applique le meme ecretage (IQR x3 + z-score > 3) que celui deja
+    utilise en US-05, mais etendu ici a TOUTES les depenses annualisees
+    (16 postes), pas seulement les 4 variables coeur (TOTEXP/FOOD/HOUS/
+    FINCBTXM) deja traitees au niveau trimestriel en US-05.
+
+    Necessaire car l'annualisation (x jusqu'a 4 pour un foyer a un seul
+    trimestre) peut amplifier une valeur trimestrielle deja elevee sur
+    les 12 postes qui n'avaient jamais ete ecretes ; laisser ces valeurs
+    non traitees peut faire dominer artificiellement le calcul de la PCA
+    (une colonne a variance demesuree ecrase toutes les autres, meme
+    apres RobustScaler qui n'egalise pas les variances comme le ferait
+    StandardScaler).
+    """
+    annual_cols = [f"{base}_FULL_ANNUEL" for base in EXPENDITURE_BASES
+                   if f"{base}_FULL_ANNUEL" in df.columns]
+
+    print(f"[{period_label}] Ecretage des valeurs aberrantes sur {len(annual_cols)} postes annualises :")
+    for col in annual_cols:
+        s = df[col]
+        q1, q3 = s.quantile(0.25), s.quantile(0.75)
+        iqr = q3 - q1
+        low_iqr, high_iqr = q1 - iqr_multiplier * iqr, q3 + iqr_multiplier * iqr
+
+        mean, std = s.mean(), s.std()
+        is_outlier_z = (s - mean).abs() > z_threshold * std if std > 0 else pd.Series(False, index=s.index)
+        is_outlier_iqr = (s < low_iqr) | (s > high_iqr)
+        is_outlier = is_outlier_iqr | is_outlier_z
+        n_outliers = int(is_outlier.sum())
+
+        df[f"{col}_CAPPED_FLAG"] = is_outlier
+        df[col] = s.clip(lower=low_iqr, upper=high_iqr)
+
+        if n_outliers > 0:
+            print(f"    {col} : {n_outliers} valeur(s) ecretee(s) [{low_iqr:,.2f} ; {high_iqr:,.2f}]")
+
+    return df
+
+
+# ---------------------------------------------------------------------------
 # 4. ECHELLE D'EQUIVALENCE (OCDE MODIFIEE)
 # ---------------------------------------------------------------------------
 
@@ -262,6 +306,50 @@ def add_business_features(df: pd.DataFrame, period_label: str) -> pd.DataFrame:
     print(f"[{period_label}] Features metier construites : "
           f"{len([c for c in df.columns if c.startswith(('part_', 'ratio_logement')) or c.endswith('par_equivalent_adulte')])} colonnes")
 
+    df = clean_business_features(df, period_label)
+
+    return df
+
+
+def clean_business_features(df: pd.DataFrame, period_label: str) -> pd.DataFrame:
+    """Corrige deux problemes de qualite reperes sur les features US-06
+    fraichement construites :
+
+    1. Les parts de budget (part_*) peuvent sortir de [0,1] : soit un
+       montant de depense legerement negatif (herite de l'ecretage IQR
+       /z-score de l'US-05, qui autorise des bornes basses negatives),
+       soit un budget total (TOTEXP_FULL_ANNUEL) proche de zero qui fait
+       exploser le ratio. Une part de budget est bornee par definition
+       entre 0 et 1 : on ecrete a cette borne logique plutot que de
+       laisser des valeurs qui n'ont pas de sens economique.
+
+    2. Les ratios logement/revenu peuvent exploser quand le revenu est
+       tres proche de zero (sans etre <= 0, deja gere a part) : un
+       foyer avec 5 $ de revenu et une depense logement normale produit
+       un ratio de plusieurs milliers, qui n'apporte aucune information
+       utile et ecraserait toute analyse statistique dessus. Ecretage
+       au 99e percentile (borne haute) et a 0 (borne basse), meme
+       logique que l'ecretage IQR/z-score deja applique en US-05.
+    """
+    part_cols = [c for c in df.columns if c.startswith("part_")]
+    for col in part_cols:
+        n_invalid = int(((df[col] < 0) | (df[col] > 1)).sum())
+        if n_invalid > 0:
+            print(f"{col} : {n_invalid} valeur(s) hors de [0,1] -> ecretees a la borne logique.")
+        df[col] = df[col].clip(lower=0, upper=1)
+
+    for col in ["ratio_logement_revenu_brut", "ratio_logement_revenu_net"]:
+        if col not in df.columns or df[col].dropna().empty:
+            continue
+        upper_bound = df[col].quantile(0.99)
+        n_capped_haut = int((df[col] > upper_bound).sum())
+        n_capped_bas = int((df[col] < 0).sum())
+        if n_capped_haut > 0:
+            print(f"{col} : {n_capped_haut} valeur(s) au-dela du 99e percentile ({upper_bound:.2f}) -> ecretees.")
+        if n_capped_bas > 0:
+            print(f"{col} : {n_capped_bas} valeur(s) negative(s) -> ramenees a 0.")
+        df[col] = df[col].clip(lower=0, upper=upper_bound)
+
     return df
 
 
@@ -330,6 +418,9 @@ def build_poverty_dataset_for_period(period_label: str) -> pd.DataFrame:
 
     print("\n--- Agregation par foyer ---")
     household_df = aggregate_by_household(df)
+
+    print("\n--- Ecretage des valeurs aberrantes (depenses annualisees) ---")
+    household_df = cap_annualized_outliers(household_df, period_label)
 
     print("\n--- Construction des cibles de pauvrete ---")
     household_df = build_poverty_targets(household_df, period_label)
