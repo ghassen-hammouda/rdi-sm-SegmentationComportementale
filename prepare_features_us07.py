@@ -76,11 +76,15 @@ BINARY_COLUMN = "BLS_URBN"
 def get_numeric_feature_columns(df: pd.DataFrame) -> list[str]:
     """Toutes les colonnes numeriques du dataset, moins l'identifiant,
     les cibles, les variables de fuite, la variable binaire, les
-    variables categorielles (traitees a part), et les colonnes de
-    tracabilite d'ecretage (_CAPPED_FLAG, booleennes, pas des features
-    comportementales). Le reste = features numeriques continues.
+    variables categorielles (traitees a part), les colonnes de
+    tracabilite d'ecretage (_CAPPED_FLAG), et les variables ordinales
+    (deja ajoutees separement via ORDINAL_COLUMNS - EDUC_REF etait
+    auparavant comptee deux fois par erreur, une fois ici et une fois
+    via ORDINAL_COLUMNS, ce qui lui donnait un poids double dans le
+    calcul de distance de la PCA/du clustering ; corrige ici).
+    Le reste = features numeriques continues.
     """
-    excluded = {ID_COLUMN, BINARY_COLUMN, *TARGET_COLUMNS, *LEAKAGE_COLUMNS, *ONEHOT_COLUMNS}
+    excluded = {ID_COLUMN, BINARY_COLUMN, *TARGET_COLUMNS, *LEAKAGE_COLUMNS, *ONEHOT_COLUMNS, *ORDINAL_COLUMNS}
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     numeric_cols = [c for c in numeric_cols if not c.endswith("_CAPPED_FLAG")]
     return [c for c in numeric_cols if c not in excluded]

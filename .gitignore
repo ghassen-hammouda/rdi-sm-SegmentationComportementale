@@ -4,6 +4,11 @@ outputs_clean/
 outputs_poverty/
 outputs_eda_review/
 outputs_profiling/
+outputs_v2/
+outputs_eda_v2/
+outputs_clustering/
+outputs_features/
 __pycache__/
 *.csv
 *.html
+*.png
