@@ -30,7 +30,7 @@ PERIOD_1_YEARS = ["2017", "2018", "2019", "2020"]
 # FINATXEM et ses composantes fiscales absentes sur 5 des 17 fichiers
 # 2024 (fmli241x, 242, 243, 244, 251), soit 28% des lignes de la periode.
 # A reevaluer plus tard si une solution est trouvee.
-PERIOD_2_YEARS = ["2021", "2022", "2023"]
+PERIOD_2_YEARS = ["2021", "2022", "2023", "2024"]
 
 # ---------------------------------------------------------------------------
 # LE PERIMETRE DE COLONNES REVALIDE, FAMILLE PAR FAMILLE
